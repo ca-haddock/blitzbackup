@@ -259,4 +259,4 @@ ls -dt /var/backups/blitzback/snapshots/[0-9]* | tail -n +11 | xargs rm -rf
 
 ## License
 
-MIT
+GPL-3.0
