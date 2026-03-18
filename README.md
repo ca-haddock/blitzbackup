@@ -2,13 +2,14 @@
 
 Package-aware backup with hardlink versioning for Arch Linux.
 
-Knows which files belong to **pacman** or **yay (AUR)** packages, detects files modified since installation, and backs everything up as space-efficient hardlink snapshots.
+Knows which files belong to **pacman** or **yay (AUR)** packages, detects files modified since installation, saves a full package inventory, and backs everything up as space-efficient hardlink snapshots.
 
 ---
 
 ## Features
 
 - **Package awareness** – runs `pacman -Qkk` to find files that differ from their installed package version; tags each file as `[official]` or `[AUR]`
+- **Package inventory** – saves a full list of installed packages (official, AUR, flatpak) in every snapshot for easy reinstallation after a disaster
 - **Unowned file detection** – scans `/etc` and `/usr/local` for files that belong to no package
 - **Flatpak support** – automatically detects and backs up `~/.var/app/` user data
 - **Hardlink versioning** – every run is a full snapshot; unchanged files are hardlinked from the previous snapshot, so only deltas use new disk space
@@ -32,8 +33,8 @@ Knows which files belong to **pacman** or **yay (AUR)** packages, detects files 
 ## Quick start
 
 ```bash
-git clone https://github.com/youruser/blitzback.git
-cd blitzback
+git clone https://github.com/ca-haddock/blitzbackup.git
+cd blitzbackup
 
 # run once as root
 sudo python blitzback.py
@@ -144,6 +145,11 @@ All options can also be set via environment variables. These override config fil
 /var/backups/blitzback/
 ├── snapshots/
 │   ├── 20260318-020000/
+│   │   ├── packages/
+│   │   │   ├── all.txt             ← all installed packages + versions
+│   │   │   ├── official.txt        ← pacman repo packages only
+│   │   │   ├── aur.txt             ← AUR packages only
+│   │   │   └── flatpak.txt         ← flatpak apps (if present)
 │   │   ├── pkg_modified/           ← package files modified since install
 │   │   │   └── etc/ssh/sshd_config
 │   │   ├── pkg_modified_files.txt  ← annotated list ([official]/[AUR])
@@ -221,6 +227,18 @@ sudo pacman -S openssh
 
 # or restore your customised version from the backup
 cp /var/backups/blitzback/snapshots/latest/pkg_modified/etc/ssh/sshd_config /etc/ssh/sshd_config
+```
+
+### Reinstall all packages from a snapshot
+
+```bash
+# reinstall official packages
+awk '{print $1}' /var/backups/blitzback/snapshots/latest/packages/official.txt \
+  | sudo pacman -S -
+
+# reinstall AUR packages
+awk '{print $1}' /var/backups/blitzback/snapshots/latest/packages/aur.txt \
+  | yay -S -
 ```
 
 ---
