@@ -327,6 +327,48 @@ def rsync_snapshot(
         log.warning("rsync exited %d for '%s':\n%s", result.returncode, src, result.stderr[:500])
 
 
+# ── Package lists ─────────────────────────────────────────────────────────────
+
+def save_package_lists(snapshot_dir: Path, has_yay: bool, log: logging.Logger) -> None:
+    """Write installed package lists to snapshot_dir/packages/."""
+    pkg_dir = snapshot_dir / "packages"
+    pkg_dir.mkdir(parents=True, exist_ok=True)
+
+    # All installed packages with version: "name version"
+    r = subprocess.run(["pacman", "-Q"], capture_output=True, text=True)
+    all_pkgs = sorted(r.stdout.splitlines())
+
+    # Foreign (AUR) packages
+    r_aur = subprocess.run(["pacman", "-Qm"], capture_output=True, text=True)
+    aur_pkgs = sorted(r_aur.stdout.splitlines())
+    aur_names = {line.split()[0] for line in aur_pkgs if line.strip()}
+
+    # Official = all minus AUR
+    official_pkgs = [l for l in all_pkgs if l.split()[0] not in aur_names]
+
+    (pkg_dir / "all.txt").write_text("\n".join(all_pkgs) + "\n")
+    (pkg_dir / "official.txt").write_text("\n".join(official_pkgs) + "\n")
+    (pkg_dir / "aur.txt").write_text("\n".join(aur_pkgs) + "\n")
+
+    # Flatpak apps (system + user) if available
+    if has_yay or shutil.which("flatpak"):
+        pass  # flatpak list handled below
+
+    if shutil.which("flatpak"):
+        r_fp = subprocess.run(
+            ["flatpak", "list", "--columns=application,version,origin"],
+            capture_output=True, text=True,
+        )
+        (pkg_dir / "flatpak.txt").write_text(r_fp.stdout)
+
+    log.info(
+        "Package lists → packages/  (%d official, %d AUR%s)",
+        len(official_pkgs),
+        len(aur_pkgs),
+        f", {len(r_fp.stdout.splitlines())} flatpak" if shutil.which("flatpak") else "",
+    )
+
+
 # ── Backup orchestration ──────────────────────────────────────────────────────
 
 def do_backup(
@@ -336,12 +378,18 @@ def do_backup(
     modified_files: list[tuple[Path, str]],
     unowned_files: list[Path],
     flatpak_dirs: list[tuple[str, Path]],
+    has_pacman: bool,
+    has_yay: bool,
     log: logging.Logger,
 ) -> None:
 
     def latest_of(name: str) -> Path | None:
         p = latest_link / name
         return p if p.is_dir() else None
+
+    # 0. Package lists
+    if has_pacman:
+        save_package_lists(snapshot_dir, has_yay, log)
 
     # 1. Modified package files – back up preserving full path
     if modified_files:
@@ -518,7 +566,7 @@ def main() -> None:
 
     flatpak_dirs = flatpak_user_data_dirs(log)
 
-    do_backup(snapshot_dir, latest_link, cfg, modified_files, unowned_files, flatpak_dirs, log)
+    do_backup(snapshot_dir, latest_link, cfg, modified_files, unowned_files, flatpak_dirs, has_pacman, has_yay, log)
 
     # Update 'latest' symlink
     tmp_link = latest_link.parent / f".latest_tmp_{os.getpid()}"
